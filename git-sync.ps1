@@ -65,14 +65,12 @@ if ($choice -eq "1") {
             Write-Host "Found untracked files. Adding them to git to prevent conflicts..." -ForegroundColor Yellow
             git add .
             if ($LASTEXITCODE -eq 0) {
-                # Only commit if we have local commits, otherwise just stage them
-                if ($hasLocalCommits) {
-                    git commit -m "Add local untracked files before pull" 2>$null
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-Host "Committed untracked files." -ForegroundColor Green
-                    }
-                } else {
-                    Write-Host "Staged untracked files (will be included in first commit)." -ForegroundColor Green
+                # Commit them so they can be merged properly with remote
+                $commitMsg = if ($hasLocalCommits) { "Add local untracked files before pull" } else { "Initial commit with local files" }
+                git commit -m $commitMsg 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Committed untracked files." -ForegroundColor Green
+                    $hasLocalCommits = $true
                 }
             }
         }
@@ -106,7 +104,49 @@ if ($choice -eq "1") {
     # PUSH MODE
     Write-Host "`n>>> Pushing to remote <<<" -ForegroundColor Cyan
     
-    # Pull first to sync with remote
+    # Check if there are changes to commit
+    $status = git status --porcelain
+    if (-not $status) {
+        Write-Host "No changes to commit." -ForegroundColor Gray
+        
+        # Even if no changes, try to pull and push to sync
+        git rev-parse --verify HEAD 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $remoteBranch = git ls-remote --heads origin $branch 2>$null
+            if ($LASTEXITCODE -eq 0 -and $remoteBranch) {
+                Write-Host "Pulling latest changes..." -ForegroundColor Yellow
+                git pull origin $branch --rebase
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Up to date with remote." -ForegroundColor Green
+                }
+            }
+        }
+        exit 0
+    }
+    
+    # Prompt for commit message
+    $msg = Read-Host "`nCommit message (empty to skip)"
+    if (-not $msg) {
+        Write-Host "Commit skipped." -ForegroundColor Gray
+        exit 0
+    }
+    
+    # Stage and commit changes first
+    Write-Host "Staging changes..." -ForegroundColor Yellow
+    git add .
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Failed to stage files!" -ForegroundColor Red
+        exit 1
+    }
+    
+    Write-Host "Committing changes..." -ForegroundColor Yellow
+    git commit -m "$msg"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Commit failed!" -ForegroundColor Red
+        exit 1
+    }
+    
+    # Now pull to sync with remote before pushing
     git rev-parse --verify HEAD 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $remoteBranch = git ls-remote --heads origin $branch 2>$null
@@ -121,39 +161,14 @@ if ($choice -eq "1") {
         }
     }
     
-    # Check if there are changes to commit
-    $status = git status --porcelain
-    if (-not $status) {
-        Write-Host "No changes to commit." -ForegroundColor Gray
-        exit 0
+    # Push to remote
+    Write-Host "Pushing to GitHub..." -ForegroundColor Yellow
+    git push -u origin $branch
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: Push failed!" -ForegroundColor Red
+        exit 1
     }
-    
-    # Prompt for commit message
-    $msg = Read-Host "`nCommit message (empty to skip)"
-    if ($msg) {
-        git add .
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Error: Failed to stage files!" -ForegroundColor Red
-            exit 1
-        }
-        
-        git commit -m "$msg"
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Error: Commit failed!" -ForegroundColor Red
-            exit 1
-        }
-        
-        # Push to remote
-        Write-Host "Pushing to GitHub..." -ForegroundColor Yellow
-        git push -u origin $branch
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Error: Push failed!" -ForegroundColor Red
-            exit 1
-        }
-        Write-Host "Done!" -ForegroundColor Green
-    } else {
-        Write-Host "Commit skipped." -ForegroundColor Gray
-    }
+    Write-Host "Done!" -ForegroundColor Green
 } else {
     Write-Host "Invalid choice. Exiting." -ForegroundColor Red
     exit 1
