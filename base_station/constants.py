@@ -1,0 +1,7 @@
+"""
+Base Station constants.
+"""
+TX_POWER = 43
+RX_SENSITIVITY = -120
+HANDOVER_HYSTERESIS = 3.0
+
