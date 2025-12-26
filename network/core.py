@@ -64,7 +64,7 @@ class Network:
         self.base_stations[base_station.id] = base_station
 
     def add_subscriber(self, subscriber):
-        self.subscribers[subscriber.id_number] = subscriber
+        self.subscribers[subscriber.phone] = subscriber
         self.hss.add_subscriber(subscriber.id_number, subscriber)
 
     def connect_call(self, subscriber, duration, start_time):
@@ -77,7 +77,6 @@ class Network:
             return False
 
         towers = self.mme.select_best_base_station(subscriber, self.base_stations.values())
-        print(towers)
         if not towers:
             self.blocked_by_capacity += 1
             return False

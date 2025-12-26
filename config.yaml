@@ -1,0 +1,64 @@
+simulation:
+  duration_seconds: 3600
+  output_report: "network_report.txt"
+
+tariffs:
+  - id: "basic_01"
+    name: "Basic"
+    price_per_minute: 1
+
+
+frequencies:
+  - id: "1"
+    frequency: 1800
+    bandwidth: 5
+  - id: "2"
+    frequency: 900
+    bandwidth: 5
+  - id: "3"
+    frequency: 2100
+    bandwidth: 5
+
+base_stations:
+  - id: "BS-01"
+    frequency_band: 1
+    x: 500
+    y: 500
+    frequency: 1800
+    bandwidth: 5
+    antenna_type: "omni"
+  - id: "BS-02"
+    frequency_band: 1
+    x: 300
+    y: 300
+    frequency: 1800
+    bandwidth: 5
+    antenna_type: "omni"
+  - id: "BS-03"
+    frequency_band: 1
+    x: 700
+    y: 700
+    frequency: 900
+    bandwidth: 5
+    antenna_type: "omni"
+
+
+
+subscribers:
+  - name: "Иван"
+    surname: "Иванов"
+    phone: "1234567890"
+    email: "ivan@example.com"
+    initial_balance: 100
+    id: "UE-01"
+  - name: "Мария"
+    surname: "Петрова"
+    phone: "1234567891"
+    email: "maria@example.com"
+    initial_balance: 100
+    id: "UE-02"
+
+
+user_equipments:
+  - id: "UE-01"
+  - id: "UE-02"
