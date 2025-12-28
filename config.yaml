@@ -11,13 +11,13 @@ tariffs:
 frequencies:
   - id: "1"
     frequency: 1800
-    bandwidth: 5
+    bandwidth: 10
   - id: "2"
     frequency: 900
-    bandwidth: 5
+    bandwidth: 15
   - id: "3"
     frequency: 2100
-    bandwidth: 5
+    bandwidth: 10
 
 base_stations:
   - id: "BS-01"
@@ -25,7 +25,7 @@ base_stations:
     x: 500
     y: 500
     frequency: 1800
-    bandwidth: 5
+    bandwidth: 10
     antenna_type: "omni"
   - id: "BS-02"
     frequency_band: 1
@@ -39,8 +39,83 @@ base_stations:
     x: 700
     y: 700
     frequency: 900
+    bandwidth: 15
+    antenna_type: "omni"
+  - id: "BS-04"
+    frequency_band: 2
+    x: 200
+    y: 200
+    frequency: 1800
+    bandwidth: 20
+    antenna_type: "directional"
+    azimuth: 45
+  - id: "BS-05"
+    frequency_band: 3
+    x: 800
+    y: 200
+    frequency: 2100
+    bandwidth: 10
+    antenna_type: "omni"
+  - id: "BS-06"
+    frequency_band: 1
+    x: 200
+    y: 800
+    frequency: 900
+    bandwidth: 10
+    antenna_type: "directional"
+    azimuth: 135
+  - id: "BS-07"
+    frequency_band: 2
+    x: 800
+    y: 800
+    frequency: 1800
+    bandwidth: 15
+    antenna_type: "omni"
+  - id: "BS-08"
+    frequency_band: 3
+    x: 100
+    y: 500
+    frequency: 2100
     bandwidth: 5
     antenna_type: "omni"
+  - id: "BS-09"
+    frequency_band: 1
+    x: 900
+    y: 500
+    frequency: 900
+    bandwidth: 20
+    antenna_type: "directional"
+    azimuth: 270
+  - id: "BS-10"
+    frequency_band: 2
+    x: 500
+    y: 100
+    frequency: 1800
+    bandwidth: 10
+    antenna_type: "omni"
+  - id: "BS-11"
+    frequency_band: 3
+    x: 500
+    y: 900
+    frequency: 2100
+    bandwidth: 20
+    antenna_type: "directional"
+    azimuth: 180
+  - id: "BS-12"
+    frequency_band: 1
+    x: 400
+    y: 400
+    frequency: 900
+    bandwidth: 5
+    antenna_type: "omni"
+  - id: "BS-13"
+    frequency_band: 2
+    x: 600
+    y: 600
+    frequency: 1800
+    bandwidth: 15
+    antenna_type: "directional"
+    azimuth: 225
 
 
 

@@ -55,3 +55,5 @@ class CDRManager:
             print(f"  - Старт: {c['start_time']} сек, Длительность: {c['duration']} сек, Списано: {c['cost']} руб.")
         return calls
 
+
+

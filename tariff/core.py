@@ -17,3 +17,5 @@ class Tariff:
     def set_cost_per_minute(self, cost_per_minute):
         self.cost_per_minute = cost_per_minute
 
+
+

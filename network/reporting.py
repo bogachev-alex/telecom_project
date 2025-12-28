@@ -131,3 +131,4 @@ def plot_coverage_gradient(network, resolution=15):
     plt.ylabel("Y (метры)")
     plt.grid(True, alpha=0.2, linestyle='--')
     plt.show()
+

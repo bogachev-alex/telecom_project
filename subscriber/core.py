@@ -78,3 +78,5 @@ class Subscriber:
     def is_busy(self, network):
         return any(session.subscriber == self for session in network.active_sessions)
 
+
+

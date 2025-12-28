@@ -22,9 +22,19 @@ class Network:
         self.hss = HSS()
         self.ocs = OCS()
         self.cdr_manager = CDRManager()
+        self.coverage_map = None  # Will be set after base stations are added
+        self.handover_events = []  # List of handover events: [(x, y, from_bs_id, to_bs_id, subscriber_name, timestamp)]
 
-    def tick(self):
-        """Process one time tick: move UEs, handle sessions, handovers."""
+    def tick(self, coverage_map=None):
+        """
+        Process one time tick: move UEs, handle sessions, handovers.
+        
+        Args:
+            coverage_map: Optional CoverageMap instance for Event A3 handover
+        """
+        # Use provided coverage map or instance variable
+        cmap = coverage_map if coverage_map else self.coverage_map
+        
         for subscriber in self.subscribers.values():
             subscriber.user_equipment.move()
             
@@ -34,17 +44,74 @@ class Network:
             ue = session.subscriber.user_equipment
             source_bs = session.base_station
             
-            mr = ue.generate_measurement_report(self, session.subscriber)
-            _, current_rsrp = check_connection_quality(session.subscriber, source_bs)
+            # Update current serving BS ID in UE
+            if ue.current_serving_bs_id != source_bs.id:
+                ue.current_serving_bs_id = source_bs.id
             
-            target_bs = source_bs.evaluate_handover(current_rsrp, mr)
-            
-            if target_bs and target_bs.current_calls < target_bs.capacity:
-                print(f"🔄 [HANDOVER] {session.subscriber.first_name}: {source_bs.id} -> {target_bs.id}")
-                source_bs.current_calls -= 1
-                session.base_station = target_bs
-                target_bs.current_calls += 1
-                _, current_rsrp = check_connection_quality(session.subscriber, target_bs)
+            # Event A3 handover using coverage map (if available)
+            if cmap is not None:
+                coverage_data = ue.step(cmap)
+                should_handover, target_bs_id = ue.check_handover_a3(coverage_data, cmap)
+                
+                if should_handover and target_bs_id and target_bs_id in self.base_stations:
+                    target_bs = self.base_stations[target_bs_id]
+                    if target_bs.current_calls < target_bs.capacity:
+                        print(f"🔄 [HANDOVER A3] {session.subscriber.first_name}: {source_bs.id} -> {target_bs.id} "
+                              f"(Candidate RSRP: {coverage_data['candidate_rsrp']:.2f} > Serving: {coverage_data['serving_rsrp']:.2f} + 3dB)")
+                        # Log handover event
+                        self.handover_events.append({
+                            'x': ue.location_x,
+                            'y': ue.location_y,
+                            'from_bs': source_bs.id,
+                            'to_bs': target_bs.id,
+                            'subscriber': session.subscriber.first_name,
+                            'timestamp': time.time()
+                        })
+                        ue.handover_history.append({
+                            'x': ue.location_x,
+                            'y': ue.location_y,
+                            'from_bs': source_bs.id,
+                            'to_bs': target_bs.id,
+                            'timestamp': time.time()
+                        })
+                        source_bs.current_calls -= 1
+                        session.base_station = target_bs
+                        target_bs.current_calls += 1
+                        ue.current_serving_bs_id = target_bs.id
+                        current_rsrp = coverage_data['serving_rsrp']
+                    else:
+                        # Target BS is full, use coverage data for RSRP
+                        current_rsrp = coverage_data['serving_rsrp']
+                else:
+                    # No handover needed, use coverage data for RSRP
+                    current_rsrp = coverage_data['serving_rsrp']
+            else:
+                # Fallback to old method if coverage map not available
+                mr = ue.generate_measurement_report(self, session.subscriber)
+                _, current_rsrp = check_connection_quality(session.subscriber, source_bs)
+                target_bs = source_bs.evaluate_handover(current_rsrp, mr)
+                if target_bs and target_bs.current_calls < target_bs.capacity:
+                    print(f"🔄 [HANDOVER] {session.subscriber.first_name}: {source_bs.id} -> {target_bs.id}")
+                    # Log handover event
+                    self.handover_events.append({
+                        'x': ue.location_x,
+                        'y': ue.location_y,
+                        'from_bs': source_bs.id,
+                        'to_bs': target_bs.id,
+                        'subscriber': session.subscriber.first_name,
+                        'timestamp': time.time()
+                    })
+                    ue.handover_history.append({
+                        'x': ue.location_x,
+                        'y': ue.location_y,
+                        'from_bs': source_bs.id,
+                        'to_bs': target_bs.id,
+                        'timestamp': time.time()
+                    })
+                    source_bs.current_calls -= 1
+                    session.base_station = target_bs
+                    target_bs.current_calls += 1
+                    _, current_rsrp = check_connection_quality(session.subscriber, target_bs)
 
             ue.log_state(time.time(), current_rsrp, session.base_station.id)
 
