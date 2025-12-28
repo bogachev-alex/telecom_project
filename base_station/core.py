@@ -1,33 +1,64 @@
 """
 Base Station module.
 """
-from .constants import TX_POWER, RX_SENSITIVITY, HANDOVER_HYSTERESIS, DEFAULT_CAPACITY
+from .constants import HANDOVER_HYSTERESIS
 from .types import Sector
 from session.core import CallSession
 from utils import load_config
 
+# base_station/core.py
+from .resource_manager import GsmResourceManager, NrResourceManager
+
 config = load_config("config.yaml")     
 
 class BaseStation:
-    def __init__(self, id, capacity, location_x, location_y, frequency, bandwidth, antenna_type, azimuth=0, sectors=None):
-        self.id = id
-        self.capacity = capacity
-        self.current_calls = 0
-        self.tx_power = TX_POWER
-        self.rx_sensitivity = RX_SENSITIVITY
-        self.location_x = location_x
-        self.location_y = location_y
-        self.neighbors = []
-        self.frequency = frequency
-        self.bandwidth = bandwidth
-        self.antenna_type = antenna_type
-        self.azimuth = azimuth  # Legacy: first sector azimuth for backward compatibility
+    def __init__(self, site_config):
+        self.id = site_config['id']
+        self.site = site_config['site']
+        self.technologies = site_config['technologies']
+        self.cells = []
         
-        # Initialize 3 sectors with optimal allocation
-        if sectors is None:
-            self.sectors = self._create_default_sectors(azimuth)
-        else:
-            self.sectors = sectors
+        # Load network_defaults from global config
+        network_defaults = config.get('network_defaults', {})
+        
+        for tech_cfg in site_config['technologies']:
+            tech_type = tech_cfg.get('type', '')
+            # Create cell for each sector in this technology
+            for sector_cfg in tech_cfg.get('sectors', []):
+                # Add network_defaults to sector config for GsmCell
+                sector_cfg_with_defaults = sector_cfg.copy()
+                sector_cfg_with_defaults['network_defaults'] = network_defaults
+                cell = CellFactory.create(tech_type, sector_cfg_with_defaults)
+                self.cells.append(cell)
+        
+        # Вывод информации о ячейках
+        print(f"\n{self.id} - Cells ({len(self.cells)}):")
+        for i, cell in enumerate(self.cells, 1):
+            cell_info = f"  {i}. {cell.id} ({cell.tech_type})"
+            cell_info += f" - azimuth: {cell.azimuth}°, antenna: {cell.antenna_type}"
+            if hasattr(cell, 'bandwidth'):
+                cell_info += f", bandwidth: {cell.bandwidth} MHz"
+            if hasattr(cell, 'num_trx'):
+                cell_info += f", TRX: {cell.num_trx}"
+            if hasattr(cell, 'scs'):
+                cell_info += f", SCS: {cell.scs} kHz"
+            print(cell_info)
+        # # Вывод информации о ячейках
+        # print(f"\n{self.id} - Cells ({len(self.cells)}):")
+        # for i, cell in enumerate(self.cells, 1):
+        #     cell_info = f"  {i}. {cell.id} ({cell.tech_type})"
+        #     cell_info += f" - azimuth: {cell.azimuth}°, antenna: {cell.antenna_type}"
+        #     if hasattr(cell, 'bandwidth'):
+        #         cell_info += f", bandwidth: {cell.bandwidth} MHz"
+        #     if hasattr(cell, 'num_trx'):
+        #         cell_info += f", TRX: {cell.num_trx}"
+        #     if hasattr(cell, 'scs'):
+        #         cell_info += f", SCS: {cell.scs} kHz"
+        #     print(cell_info)
+
+    def get_available_services(self):
+        """Возвращает список доступных технологий на этой вышке."""
+        return [cell.technology_type for cell in self.cells]
 
     def connect_call(self, subscriber, duration, start_time):
         if self.current_calls < self.capacity:
@@ -50,25 +81,11 @@ class BaseStation:
         """
         base_stations = {}
         for bs in config['base_stations']:
-            capacity = bs.get('capacity', DEFAULT_CAPACITY)
-            azimuth = bs.get('azimuth', 0)
-            base_stations[bs['id']] = BaseStation(
-                bs['id'], 
-                capacity,
-                bs['x'], 
-                bs['y'], 
-                bs['frequency'], 
-                bs['bandwidth'], 
-                bs['antenna_type'],
-                azimuth
-            )
+            base_stations[bs['id']] = BaseStation(bs)
         return base_stations
 
-    def get_current_calls(self):
-        return self.current_calls
-
-    def get_capacity(self):
-        return self.capacity
+    def __repr__(self):
+        return f"Site({self.id}, Cells={len(self.cells)})"
 
     def evaluate_handover(self, current_rsrp, measurement_report):
         """
@@ -115,3 +132,38 @@ class BaseStation:
     def __repr__(self):
         return f"BS({self.id}, {self.current_calls}/{self.capacity}, sectors={len(self.sectors)})"
 
+class CellFactory:
+    @staticmethod
+    def create(tech_type, sector_config):
+        if tech_type == "gsm":
+            return GsmCell(sector_config)
+        elif tech_type == "5g_nr":
+            return NrCell(sector_config)
+        raise ValueError(f"Unknown technology: {tech_type}")
+
+class Cell:
+    def __init__(self, config, tech_type):
+        self.id = config['cell_id']
+        self.azimuth = config['azimuth']
+        self.tech_type = tech_type
+        # Антенна всегда directional для секторов
+        self.antenna_type = config.get('antenna_type', 'directional')
+
+class GsmCell(Cell):
+    def __init__(self, config):
+        super().__init__(config, "gsm")
+        self.num_trx = config['num_trx']
+        # Полоса для физики (Link Budget) всегда 0.2 МГц
+        self.bandwidth = config['num_trx'] * config['network_defaults']['gsm']['trx_bandwidth_mhz']
+        self.resource_mgr = GsmResourceManager(self.num_trx)
+    def connect(self, subscriber):
+        return self.resource_mgr.allocate(subscriber.id)
+
+class NrCell(Cell):
+    def __init__(self, config):
+        super().__init__(config, "5g_nr")
+        self.bandwidth = config['bandwidth_mhz']
+        self.scs = config.get('scs_khz', 30)
+        self.resource_mgr = NrResourceManager(self.bandwidth)
+    def connect(self, subscriber):
+        return self.resource_mgr.allocate(subscriber.id)

@@ -1,6 +1,12 @@
 simulation:
   duration_seconds: 3600
   output_report: "network_report.txt"
+# Глобальные константы технологии (чтобы не дублировать в каждой БС)
+network_defaults:
+  gsm:
+    trx_bandwidth_mhz: 0.2  # Физика: 200 кГц на один TRX
+    slots_per_trx: 8        # Стандарт TDMA
+    sig_slots_per_cell: 2   # Резерв под BCCH/SDCCH
 
 tariffs:
   - id: "basic_01"
@@ -8,114 +14,76 @@ tariffs:
     price_per_minute: 1
 
 
-frequencies:
-  - id: "1"
-    frequency: 1800
-    bandwidth: 10
-  - id: "2"
-    frequency: 900
-    bandwidth: 15
-  - id: "3"
-    frequency: 2100
-    bandwidth: 10
 
 base_stations:
-  - id: "BS-01"
-    frequency_band: 1
-    x: 500
-    y: 500
-    frequency: 1800
-    bandwidth: 10
-    antenna_type: "omni"
-  - id: "BS-02"
-    frequency_band: 1
-    x: 300
-    y: 300
-    frequency: 1800
-    bandwidth: 5
-    antenna_type: "omni"
-  - id: "BS-03"
-    frequency_band: 1
-    x: 700
-    y: 700
-    frequency: 900
-    bandwidth: 15
-    antenna_type: "omni"
-  - id: "BS-04"
-    frequency_band: 2
-    x: 200
-    y: 200
-    frequency: 1800
-    bandwidth: 20
-    antenna_type: "directional"
-    azimuth: 45
-  - id: "BS-05"
-    frequency_band: 3
-    x: 800
-    y: 200
-    frequency: 2100
-    bandwidth: 10
-    antenna_type: "omni"
-  - id: "BS-06"
-    frequency_band: 1
-    x: 200
-    y: 800
-    frequency: 900
-    bandwidth: 10
-    antenna_type: "directional"
-    azimuth: 135
-  - id: "BS-07"
-    frequency_band: 2
-    x: 800
-    y: 800
-    frequency: 1800
-    bandwidth: 15
-    antenna_type: "omni"
-  - id: "BS-08"
-    frequency_band: 3
-    x: 100
-    y: 500
-    frequency: 2100
-    bandwidth: 5
-    antenna_type: "omni"
-  - id: "BS-09"
-    frequency_band: 1
-    x: 900
-    y: 500
-    frequency: 900
-    bandwidth: 20
-    antenna_type: "directional"
-    azimuth: 270
-  - id: "BS-10"
-    frequency_band: 2
-    x: 500
-    y: 100
-    frequency: 1800
-    bandwidth: 10
-    antenna_type: "omni"
-  - id: "BS-11"
-    frequency_band: 3
-    x: 500
-    y: 900
-    frequency: 2100
-    bandwidth: 20
-    antenna_type: "directional"
-    azimuth: 180
-  - id: "BS-12"
-    frequency_band: 1
-    x: 400
-    y: 400
-    frequency: 900
-    bandwidth: 5
-    antenna_type: "omni"
-  - id: "BS-13"
-    frequency_band: 2
-    x: 600
-    y: 600
-    frequency: 1800
-    bandwidth: 15
-    antenna_type: "directional"
-    azimuth: 225
+# Пример 2G станции
+# ------------------------------------------------------------------
+  # ГИБРИДНЫЙ САЙТ (Multi-RAT): 2G + 5G в центре
+  # ------------------------------------------------------------------
+  - id: "SITE-CENTRAL-01"
+    site:
+      x: 500
+      y: 500
+      height_m: 35
+    
+    technologies:
+      - type: "gsm"
+        # Классическая 3-секторная конфигурация 2G
+        sectors:
+          - cell_id: "SITE-01-G1"
+            azimuth: 0
+            frequency_mhz: 900
+            num_trx: 3
+            antenna_type: "directional"        # Емкость: (3*8)-2 = 22 слота
+          - cell_id: "SITE-01-G2"
+            azimuth: 120
+            frequency_mhz: 900
+            antenna_type: "directional"  
+            num_trx: 2
+          - cell_id: "SITE-01-G3"
+            azimuth: 240
+            frequency_mhz: 900
+            num_trx: 2
+            antenna_type: "directional"
+      - type: "5g_nr"
+        # 5G с независимыми азимутами и другой нарезкой секторов
+        sectors:
+          - cell_id: "SITE-01-N1"
+            azimuth: 15       # Смещение относительно GSM для точного покрытия
+            frequency_mhz: 3500
+            bandwidth_mhz: 100
+            mimo_layers: 4
+            antenna_type: "directional"
+          - cell_id: "SITE-01-N2"
+            azimuth: 135
+            frequency_mhz: 3500
+            bandwidth_mhz: 80
+            antenna_type: "directional"
+          - cell_id: "SITE-01-N3"
+            azimuth: 255
+            frequency_mhz: 3500
+            bandwidth_mhz: 100
+            antenna_type: "directional"
+  # ------------------------------------------------------------------
+  # СТАНДАРТНЫЙ 2G САЙТ: Окраина города
+  # ------------------------------------------------------------------
+  - id: "SITE-SUBURB-02"
+    site:
+      x: 150
+      y: 850
+      height_m: 25
+    
+    technologies:
+      - type: "gsm"
+        sectors:
+          - cell_id: "SITE-02-G1"
+            azimuth: 45
+            frequency_mhz: 1800
+            num_trx: 1        # Малая емкость: (1*8)-2 = 6 слотов
+          - cell_id: "SITE-02-G2"
+            azimuth: 225
+            frequency_mhz: 1800
+            num_trx: 1
 
 
 

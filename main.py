@@ -11,6 +11,92 @@ from network.reporting import plot_coverage_gradient
 from network.physics import interference_calculation, get_signal_strength, get_antenna_gain, noise_calculation, check_connection_quality, get_path_loss
 from network.rem.core import CoverageMap
 from utils import load_config
+from base_station.constants import TX_POWER, RX_SENSITIVITY, DEFAULT_CAPACITY
+from base_station.types import Sector
+from session.core import CallSession
+
+
+class CoverageBaseStation:
+    """Adapter class for CoverageMap compatibility."""
+    def __init__(self, bs_id, location_x, location_y, frequency, bandwidth, 
+                 antenna_type="directional", sectors=None, azimuth=0):
+        self.id = bs_id
+        self.location_x = location_x
+        self.location_y = location_y
+        self.frequency = frequency
+        self.bandwidth = bandwidth
+        self.antenna_type = antenna_type
+        self.azimuth = azimuth
+        self.sectors = sectors or []
+        self.tx_power = TX_POWER
+        self.rx_sensitivity = RX_SENSITIVITY
+        self.capacity = DEFAULT_CAPACITY
+        self.current_calls = 0
+        self.neighbors = []  # List of neighboring base stations
+    
+    def connect_call(self, subscriber, duration, start_time):
+        """Establish call connection."""
+        if self.current_calls < self.capacity:
+            if subscriber.make_call(duration):
+                self.current_calls += 1
+                return CallSession(subscriber, self, duration, start_time)
+            return None
+        else:
+            print("Вышка перегружена")
+            return False
+
+
+def create_coverage_bs_from_config(config):
+    """
+    Create CoverageMap-compatible BaseStation objects from config.yaml.
+    Creates separate BS for each sector of each technology.
+    """
+    coverage_bs = {}
+    network_defaults = config.get('network_defaults', {})
+    
+    for bs_config in config.get('base_stations', []):
+        site = bs_config.get('site', {})
+        x = site.get('x', 0)
+        y = site.get('y', 0)
+        
+        for tech in bs_config.get('technologies', []):
+            tech_type = tech.get('type', '')
+            sectors_cfg = tech.get('sectors', [])
+            
+            for sector_cfg in sectors_cfg:
+                cell_id = sector_cfg.get('cell_id', '')
+                if not cell_id:
+                    continue
+                frequency = sector_cfg.get('frequency_mhz', 900)
+                azimuth = sector_cfg.get('azimuth', 0)
+                antenna_type = sector_cfg.get('antenna_type', 'directional')
+                
+                # Calculate bandwidth
+                if tech_type == 'gsm':
+                    num_trx = sector_cfg.get('num_trx', 1)
+                    trx_bw = network_defaults.get('gsm', {}).get('trx_bandwidth_mhz', 0.2)
+                    bandwidth = num_trx * trx_bw
+                elif tech_type == '5g_nr':
+                    bandwidth = sector_cfg.get('bandwidth_mhz', 20)
+                else:
+                    bandwidth = 20  # default
+                
+                # Create sector object
+                sector = Sector(sector_id=0, azimuth=azimuth, antenna_type=antenna_type)
+                
+                # Use cell_id as BS ID for CoverageMap
+                coverage_bs[cell_id] = CoverageBaseStation(
+                    bs_id=cell_id,
+                    location_x=x,
+                    location_y=y,
+                    frequency=frequency,
+                    bandwidth=bandwidth,
+                    antenna_type=antenna_type,
+                    sectors=[sector],
+                    azimuth=azimuth
+                )
+    
+    return coverage_bs
 
 
 def visualize_coverage(coverage, network=None):
@@ -383,32 +469,24 @@ if __name__ == "__main__":
     # 1. Загружаем тарифы (создаем словарь для быстрого поиска)
     tariffs = {t['name']: Tariff(t['name'], t['price_per_minute']) for t in config['tariffs']}
 
-    # 2. Оптимальное размещение базовых станций
-    print("Планирование оптимального размещения базовых станций...")
-    from base_station.placement import BSPlacementOptimizer
-    
+    # 2. Загрузка базовых станций из config.yaml
+    print("Загрузка базовых станций из config.yaml...")
     width, height = 1000, 1000
-    frequencies = [f['frequency'] for f in config['frequencies']]
-    bandwidths = [f['bandwidth'] for f in config['frequencies']]
     
-    optimizer = BSPlacementOptimizer(
-        width=width,
-        height=height,
-        min_rsrp=-110.0,
-        target_coverage=0.95,
-        frequencies=frequencies,
-        bandwidths=bandwidths
-    )
+    # Create BaseStation objects from config (for detailed info output)
+    if 'base_stations' in config:
+        for bs_config in config['base_stations']:
+            bs = BaseStation(bs_config)  # This will print cell information
     
-    # Plan optimal placement (auto-calculates number of BS)
-    optimal_bs = optimizer.plan_optimal_placement(n_bs=None, max_iterations=30)
+    # Create CoverageMap-compatible BS from config
+    coverage_bs = create_coverage_bs_from_config(config)
     
-    print(f"\nРазмещено {len(optimal_bs)} базовых станций:")
-    for bs_id, bs in optimal_bs.items():
+    print(f"\nЗагружено {len(coverage_bs)} базовых станций для CoverageMap:")
+    for bs_id, bs in coverage_bs.items():
         core_network.add_base_station(bs)
-        sector_azimuths = [f'{s.azimuth:.0f}°' for s in bs.sectors]
+        sector_info = f"сектор {bs.sectors[0].azimuth:.0f}°" if bs.sectors else "без секторов"
         print(f"  {bs_id}: ({bs.location_x:.0f}, {bs.location_y:.0f}), "
-              f"{bs.frequency} MHz, {bs.bandwidth} MHz, секторы {sector_azimuths}")
+              f"{bs.frequency} MHz, {bs.bandwidth:.1f} MHz, {sector_info}")
 
     # 3. Загружаем абонентов
     for sub_data in config['subscribers']:
