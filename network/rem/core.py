@@ -39,8 +39,9 @@ class CoverageMap:
         Calculate path loss with frequency-dependent propagation.
         Synchronized with network.physics.get_path_loss() for consistency.
         
-        Formula: L = 32.44 + 20*log10(f_MHz) + 20*log10(d_km) + Urban_Loss
-        Where Urban_Loss = 25 dB accounts for urban environment.
+        Formula: L = 32.44 + 20*log10(f_MHz) + 20*log10(d_km) + Clutter_Loss
+        Where Clutter_Loss = 25 dB for < 2000 MHz, 30 dB for >= 2000 MHz
+        (higher frequencies have more penetration loss in urban environments).
         
         Args:
             distance: Distance in meters (numpy array)

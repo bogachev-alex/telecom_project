@@ -105,7 +105,12 @@ def visualize_coverage(coverage, network=None):
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     
     # Layer 0: RSRP
-    im0 = axes[0, 0].imshow(coverage.coverage_map[:, :, 0], cmap='RdYlGn', origin='lower')
+    # Typical RSRP range: -50 dBm (excellent) to -110 dBm (poor)
+    rsrp_data = coverage.coverage_map[:, :, 0]
+    rsrp_vmin = max(rsrp_data.min(), -120)  # Clamp to reasonable range
+    rsrp_vmax = min(rsrp_data.max(), -40)   # Clamp to reasonable range
+    im0 = axes[0, 0].imshow(rsrp_data, cmap='RdYlGn', origin='lower', 
+                           vmin=rsrp_vmin, vmax=rsrp_vmax)
     axes[0, 0].set_title('RSRP (dBm)')
     axes[0, 0].set_xlabel('X')
     axes[0, 0].set_ylabel('Y')
@@ -117,7 +122,11 @@ def visualize_coverage(coverage, network=None):
     plt.colorbar(im1, ax=axes[0, 1])
     
     # Layer 2: Candidate RSRP
-    im2 = axes[0, 2].imshow(coverage.coverage_map[:, :, 2], cmap='RdYlGn', origin='lower')
+    candidate_rsrp = coverage.coverage_map[:, :, 2]
+    candidate_vmin = max(candidate_rsrp.min(), -120)
+    candidate_vmax = min(candidate_rsrp.max(), -40)
+    im2 = axes[0, 2].imshow(candidate_rsrp, cmap='RdYlGn', origin='lower',
+                           vmin=candidate_vmin, vmax=candidate_vmax)
     axes[0, 2].set_title('Candidate RSRP (dBm)')
     plt.colorbar(im2, ax=axes[0, 2])
     
@@ -127,7 +136,12 @@ def visualize_coverage(coverage, network=None):
     plt.colorbar(im3, ax=axes[1, 0])
     
     # Layer 4: Interference
-    im4 = axes[1, 1].imshow(coverage.coverage_map[:, :, 4], cmap='hot', origin='lower')
+    # Interference should be high in overlap zones, low near serving BS
+    interference_data = coverage.coverage_map[:, :, 4]
+    interference_vmin = max(interference_data.min(), -140)
+    interference_vmax = min(interference_data.max(), -35)
+    im4 = axes[1, 1].imshow(interference_data, cmap='hot', origin='lower',
+                            vmin=interference_vmin, vmax=interference_vmax)
     axes[1, 1].set_title('Interference (dBm)')
     plt.colorbar(im4, ax=axes[1, 1])
     
@@ -546,6 +560,13 @@ if __name__ == "__main__":
     get_logger().info(f"RSRP range: {rsrp.min():.2f} to {rsrp.max():.2f} dBm")
     get_logger().info(f"Interference range: {interference.min():.2f} to {interference.max():.2f} dBm")
     get_logger().info(f"SINR range: {sinr.min():.2f} to {sinr.max():.2f} dB")
+    
+    # Debug: Check RSRP values at base station locations
+    for bs_id, bs in coverage_map.base_stations.items():
+        bs_x, bs_y = int(bs.location_x), int(bs.location_y)
+        if 0 <= bs_x < coverage_map.width and 0 <= bs_y < coverage_map.height:
+            rsrp_at_bs = rsrp[bs_y, bs_x]
+            get_logger().info(f"  {bs_id} at ({bs_x}, {bs_y}): RSRP = {rsrp_at_bs:.2f} dBm, freq = {bs.frequency} MHz")
     get_logger().info(f"SINR mean: {sinr.mean():.2f} dB, median: {np.median(sinr):.2f} dB")
     
     # Check SINR values for capacity calculation

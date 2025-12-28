@@ -34,6 +34,14 @@ def check_connection_quality(subscriber_or_ue, base_station):
     
     # DOWNLINK (Base Station -> UE)
     dl_signal = base_station.tx_power - path_loss + antenna_gain
+    
+    # If directional antenna, account for angle-based attenuation
+    if antenna_type == 'directional' and hasattr(base_station, 'azimuth'):
+        ue_coords = (user_equipment.location_x, user_equipment.location_y)
+        site_coords = (base_station.location_x, base_station.location_y)
+        angle_loss = get_angle_attenuation(ue_coords, site_coords, base_station.azimuth)
+        dl_signal += angle_loss
+    
     downlink_ok = dl_signal > user_equipment.rx_sensitivity
     
     # UPLINK (UE -> Base Station)
