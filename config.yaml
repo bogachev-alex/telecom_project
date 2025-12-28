@@ -1,6 +1,7 @@
 simulation:
   duration_seconds: 3600
   output_report: "network_report.txt"
+  log_file: "simulation.log"
 # Глобальные константы технологии (чтобы не дублировать в каждой БС)
 network_defaults:
   gsm:
@@ -92,13 +93,13 @@ subscribers:
     surname: "Иванов"
     phone: "1234567890"
     email: "ivan@example.com"
-    initial_balance: 100
+    initial_balance: 100000
     id: "UE-01"
   - name: "Мария"
     surname: "Петрова"
     phone: "1234567891"
     email: "maria@example.com"
-    initial_balance: 100
+    initial_balance: 100000
     id: "UE-02"
 
 

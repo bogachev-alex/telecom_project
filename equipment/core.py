@@ -10,8 +10,8 @@ class UserEquipment:
         self.ue_id = ue_id
         self.location_x = random.randint(0, 1000)
         self.location_y = random.randint(0, 1000)
-        self.velocity_x = random.uniform(-1, 1)
-        self.velocity_y = random.uniform(-1, 1)
+        self.velocity_x = random.uniform(-2, 2)  # Increased speed for more handovers
+        self.velocity_y = random.uniform(-2, 2)
         self.tx_power = TX_POWER
         self.rx_sensitivity = RX_SENSITIVITY
         self.history = []
@@ -20,14 +20,16 @@ class UserEquipment:
         self.current_serving_bs_id = None  # Currently connected BS ID
         self.handover_history = []  # List of handover events: [(x, y, from_bs, to_bs, timestamp)]
 
-    def log_state(self, timestamp, rsrp, base_station_id, sim_step=None):
+    def log_state(self, timestamp, rsrp, base_station_id, sim_step=None, event_type=None):
+        """Log UE state with optional event type (HANDOVER, RESELECTION, or None)."""
         self.history.append({
             'time': timestamp,
             'sim_step': sim_step,
             'x': self.location_x,
             'y': self.location_y,
             'rsrp': rsrp,
-            'base_station_id': base_station_id
+            'base_station_id': base_station_id,
+            'event': event_type
         })
 
     def get_id(self):
@@ -37,14 +39,34 @@ class UserEquipment:
         return self.location_x, self.location_y
    
     def move(self):
-        """Move UE by velocity vector."""
+        """Move UE by velocity vector with smooth direction changes."""
+        # Add small random variation to direction (more realistic movement)
+        if random.random() < 0.1:  # 10% chance to change direction slightly
+            self.velocity_x += random.uniform(-0.2, 0.2)
+            self.velocity_y += random.uniform(-0.2, 0.2)
+            # Normalize velocity to maintain consistent speed
+            speed = (self.velocity_x**2 + self.velocity_y**2)**0.5
+            if speed > 0:
+                self.velocity_x = self.velocity_x / speed * random.uniform(0.5, 1.5)
+                self.velocity_y = self.velocity_y / speed * random.uniform(0.5, 1.5)
+        
         self.location_x += self.velocity_x
         self.location_y += self.velocity_y
         
-        if self.location_x < 0 or self.location_x > 1000:
-            self.velocity_x *= -1
-        if self.location_y < 0 or self.location_y > 1000:
-            self.velocity_y *= -1
+        # Smooth boundary handling - turn around gradually instead of instant bounce
+        if self.location_x < 0:
+            self.location_x = 0
+            self.velocity_x = abs(self.velocity_x) * random.uniform(0.5, 1.0)
+        elif self.location_x > 1000:
+            self.location_x = 1000
+            self.velocity_x = -abs(self.velocity_x) * random.uniform(0.5, 1.0)
+            
+        if self.location_y < 0:
+            self.location_y = 0
+            self.velocity_y = abs(self.velocity_y) * random.uniform(0.5, 1.0)
+        elif self.location_y > 1000:
+            self.location_y = 1000
+            self.velocity_y = -abs(self.velocity_y) * random.uniform(0.5, 1.0)
 
     def step(self, coverage_map):
         """
@@ -66,23 +88,26 @@ class UserEquipment:
         
         return coverage_data
 
-    def check_handover_a3(self, coverage_data, coverage_map, hysteresis_db=3.0, time_to_trigger=3):
+    def check_handover_a3(self, coverage_data, coverage_map, current_bs_rsrp=None, current_bs_id=None, hysteresis_db=3.0, time_to_trigger=3):
         """
         Check Event A3 handover condition using coverage map data.
         
-        Event A3: Candidate_RSRP > Serving_RSRP + Hysteresis
+        Event A3: Candidate_RSRP > Current_BS_RSRP + Hysteresis
         Must be true for Time-to-Trigger consecutive measurements.
         
         Args:
             coverage_data: Dictionary from coverage_map.lookup()
             coverage_map: CoverageMap instance to resolve BS IDs
+            current_bs_rsrp: RSRP from current call BS (if None, uses serving_rsrp from map)
+            current_bs_id: ID of current call BS (to avoid handover to same BS)
             hysteresis_db: Hysteresis in dB to prevent ping-pong (default 3.0)
             time_to_trigger: Number of consecutive measurements required (default 3)
             
         Returns:
             Tuple (should_handover: bool, target_bs_id: str or None)
         """
-        serving_rsrp = coverage_data['serving_rsrp']
+        # Use actual current call BS RSRP if provided, otherwise fallback to map serving RSRP
+        serving_rsrp = current_bs_rsrp if current_bs_rsrp is not None else coverage_data['serving_rsrp']
         serving_bs_id = coverage_data['serving_bs_id']
         candidate_rsrp = coverage_data['candidate_rsrp']
         candidate_bs_id = coverage_data['candidate_bs_id']
@@ -92,8 +117,21 @@ class UserEquipment:
             # Reset counter if serving BS changed
             self.handover_trigger_count = 0
         
-        # Check Event A3 condition: Candidate_RSRP > Serving_RSRP + Hysteresis
+        # Check Event A3 condition: Candidate_RSRP > Current_BS_RSRP + Hysteresis
         if candidate_bs_id is not None and candidate_rsrp > -140:
+            # Get candidate BS string ID to check if it's different from current
+            candidate_bs_str_id = None
+            for bs_id, bs in coverage_map.base_stations.items():
+                numeric_id = coverage_map.bs_id_to_numeric.get(bs_id, 0)
+                if int(candidate_bs_id) == numeric_id:
+                    candidate_bs_str_id = bs_id
+                    break
+            
+            # Skip if candidate is same as current BS
+            if current_bs_id and candidate_bs_str_id == current_bs_id:
+                self.handover_trigger_count = 0
+                return False, None
+            
             condition_met = candidate_rsrp > (serving_rsrp + hysteresis_db)
             
             if condition_met:
@@ -104,14 +142,10 @@ class UserEquipment:
             
             # Check if Time-to-Trigger reached
             if self.handover_trigger_count >= time_to_trigger:
-                # Get actual BS ID from numeric ID
-                if candidate_bs_id is not None:
-                    # Find BS by numeric ID
-                    for bs_id, bs in coverage_map.base_stations.items():
-                        numeric_id = coverage_map.bs_id_to_numeric.get(bs_id, 0)
-                        if int(candidate_bs_id) == numeric_id:
-                            self.handover_trigger_count = 0  # Reset after handover
-                            return True, bs_id
+                # Return candidate BS string ID
+                if candidate_bs_str_id:
+                    self.handover_trigger_count = 0  # Reset after handover
+                    return True, candidate_bs_str_id
         else:
             # No valid candidate, reset counter
             self.handover_trigger_count = 0

@@ -5,61 +5,110 @@ import datetime
 import matplotlib.pyplot as plt
 import math
 import numpy as np
+from utils.logger import get_logger
 
 
 def get_report(network):
-    """Generate network statistics report including handover statistics."""
-    print("\n" + "="*30)
-    print("--- ДЕТАЛЬНЫЙ ОТЧЕТ СЕТИ ---")
-    print(f"Всего попыток звонков: {network.total_attempts}")
-    print(f"Успешных соединений: {network.total_successful_calls}")
-    print(f"Всего хэндоверов: {len(network.handover_events)}")
+    """Generate network statistics report including mobility statistics."""
+    logger = get_logger()
+    logger.info("\n" + "="*30)
+    logger.info("--- ДЕТАЛЬНЫЙ ОТЧЕТ СЕТИ ---")
+    logger.info(f"Всего попыток звонков: {network.total_attempts}")
+    logger.info(f"Успешных соединений: {network.total_successful_calls}")
+    logger.info("-" * 30)
+    logger.info("--- МОБИЛЬНОСТЬ АБОНЕНТОВ ---")
+    logger.info(f"🔄 Active Handovers (во время звонка): {len(network.handover_events)}")
+    logger.info(f"📍 Idle Reselections (в ожидании):    {len(network.reselection_events)}")
     
-    # Count by type
-    a3_count = sum(1 for ho in network.handover_events if ho.get('type') == 'A3')
-    legacy_count = sum(1 for ho in network.handover_events if ho.get('type') == 'legacy')
+    # Count handovers by type
     if network.handover_events:
-        print(f"  - Event A3: {a3_count}")
-        print(f"  - Legacy: {legacy_count}")
+        a3_count = sum(1 for ho in network.handover_events if ho.get('type') == 'A3')
+        legacy_count = sum(1 for ho in network.handover_events if ho.get('type') == 'legacy')
+        logger.info(f"  - Event A3: {a3_count}")
+        logger.info(f"  - Legacy: {legacy_count}")
     
-    print("-" * 30)
-    print("ПРИЧИНЫ НЕУДАЧ:")
+    logger.info("-" * 30)
+    logger.info("ПРИЧИНЫ НЕУДАЧ:")
     if network.total_attempts > 0:
-        print(f" - Перегрузка вышек: {network.blocked_by_capacity} ({network.blocked_by_capacity/network.total_attempts:.2%})")
-        print(f" - Нехватка средств: {network.blocked_by_balance} ({network.blocked_by_balance/network.total_attempts:.2%})")
-    print("-" * 30)
+        logger.info(f" - Перегрузка вышек: {network.blocked_by_capacity} ({network.blocked_by_capacity/network.total_attempts:.2%})")
+        logger.info(f" - Нехватка средств: {network.blocked_by_balance} ({network.blocked_by_balance/network.total_attempts:.2%})")
+    logger.info("-" * 30)
     
     total_blocked = network.blocked_by_capacity + network.blocked_by_balance
     if network.total_attempts > 0:
         gos = total_blocked / network.total_attempts
-        print(f"Общий Grade of Service: {gos:.2%}")
-    print("="*30)
+        logger.info(f"Общий Grade of Service: {gos:.2%}")
+    logger.info("="*30)
 
 
 def print_subscriber_trace(network, subscriber_id):
-    """Print subscriber trace with handover event markers."""
+    """Print subscriber trace with handover event markers and aggregation."""
+    logger = get_logger()
     sub = network.subscribers.get(subscriber_id)
     if not sub or not sub.user_equipment.history:
-        print(f"История для {subscriber_id} не найдена.")
+        logger.info(f"История для {subscriber_id} не найдена.")
         return
 
-    print(f"\n--- ТРАССИРОВКА ДЛЯ {sub.first_name} ---")
-    print(f"{'Шаг':<6} | {'БС':<12} | {'RSRP':<8} | {'Событие'}")
-    print("-" * 50)
+    logger.info(f"\n--- ТРАССИРОВКА ДЛЯ {sub.first_name} ---")
+    logger.info(f"{'Шаги':<12} | {'БС':<12} | {'RSRP':<15} | {'Событие'}")
+    logger.info("-" * 60)
 
-    last_bs = None
+    if not sub.user_equipment.history:
+        return
+    
+    # Aggregate consecutive entries with same BS
+    aggregated = []
+    current_group = None
+    
     for entry in sub.user_equipment.history:
-        # Use sim_step if available, otherwise fallback to time
         step = entry.get('sim_step', entry.get('time', 'N/A'))
-        
-        # Determine if handover occurred in this tick
-        event = ""
         current_bs = entry['base_station_id']
-        if last_bs and current_bs != last_bs:
+        rsrp = entry['rsrp']
+        event_type = entry.get('event')
+        
+        # Determine event
+        event = ""
+        if event_type == "HANDOVER":
             event = "🔄 HANDOVER"
-        last_bs = current_bs
-
-        print(f"{step:<6} | {current_bs:<12} | {entry['rsrp']:<8.1f} | {event}")
+        elif event_type == "RESELECTION":
+            event = "📍 RESELECTION"
+        
+        # Check if we can aggregate with previous group
+        if (current_group and 
+            current_group['bs'] == current_bs and 
+            current_group['event'] == event and
+            abs(current_group['rsrp_max'] - rsrp) < 0.5):  # RSRP within 0.5 dB
+            # Extend current group
+            current_group['step_end'] = step
+            current_group['rsrp_min'] = min(current_group['rsrp_min'], rsrp)
+            current_group['rsrp_max'] = max(current_group['rsrp_max'], rsrp)
+            current_group['count'] += 1
+        else:
+            # Save previous group and start new one
+            if current_group:
+                aggregated.append(current_group)
+            
+            current_group = {
+                'step_start': step,
+                'step_end': step,
+                'bs': current_bs,
+                'rsrp_min': rsrp,
+                'rsrp_max': rsrp,
+                'event': event,
+                'count': 1
+            }
+    
+    # Don't forget the last group
+    if current_group:
+        aggregated.append(current_group)
+    
+    # Print aggregated results
+    for group in aggregated:
+        step_str = f"{group['step_start']}-{group['step_end']}" if group['step_start'] != group['step_end'] else str(group['step_start'])
+        rsrp_str = f"{group['rsrp_min']:.1f}" if group['rsrp_min'] == group['rsrp_max'] else f"{group['rsrp_min']:.1f}..{group['rsrp_max']:.1f}"
+        count_str = f" ({group['count']})" if group['count'] > 1 else ""
+        
+        logger.info(f"{step_str:<12} | {group['bs']:<12} | {rsrp_str:<15} | {group['event']}{count_str}")
 
 
 def plot_subscriber_movement(network, subscriber_id):

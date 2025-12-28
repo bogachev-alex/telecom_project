@@ -11,6 +11,7 @@ from network.reporting import plot_coverage_gradient
 from network.physics import interference_calculation, get_signal_strength, get_antenna_gain, noise_calculation, check_connection_quality, get_path_loss
 from network.rem.core import CoverageMap
 from utils import load_config
+from utils.logger import init_logger, get_logger
 from base_station.constants import TX_POWER, RX_SENSITIVITY, DEFAULT_CAPACITY
 from base_station.types import Sector
 from session.core import CallSession
@@ -42,7 +43,7 @@ class CoverageBaseStation:
                 return CallSession(subscriber, self, duration, start_time)
             return None
         else:
-            print("Вышка перегружена")
+            get_logger().warning("Вышка перегружена")
             return False
 
 
@@ -199,7 +200,7 @@ def visualize_coverage(coverage, network=None):
 def visualize_handovers(network, coverage_map):
     """Visualize handover events on coverage map."""
     if not network.handover_events:
-        print("Нет хендоверов для визуализации")
+        get_logger().info("Нет хендоверов для визуализации")
         return
     
     fig, ax = plt.subplots(1, 1, figsize=(12, 10))
@@ -421,25 +422,25 @@ def visualize_capacity_map(coverage_map):
     ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
     
     # Print statistics
-    print(f"\nCapacity Map Statistics:")
-    print(f"  Min: {capacity_map.min():.4f} Mbps")
-    print(f"  Max: {capacity_map.max():.2f} Mbps")
-    print(f"  Mean: {capacity_map.mean():.4f} Mbps")
-    print(f"  Median: {np.median(capacity_map):.4f} Mbps")
+    get_logger().info(f"\nCapacity Map Statistics:")
+    get_logger().info(f"  Min: {capacity_map.min():.4f} Mbps")
+    get_logger().info(f"  Max: {capacity_map.max():.2f} Mbps")
+    get_logger().info(f"  Mean: {capacity_map.mean():.4f} Mbps")
+    get_logger().info(f"  Median: {np.median(capacity_map):.4f} Mbps")
     if np.any(capacity_map > 0):
         p95 = np.percentile(capacity_map[capacity_map > 0], 95)
         p99 = np.percentile(capacity_map[capacity_map > 0], 99)
-        print(f"  95th percentile: {p95:.2f} Mbps")
-        print(f"  99th percentile: {p99:.2f} Mbps")
+        get_logger().info(f"  95th percentile: {p95:.2f} Mbps")
+        get_logger().info(f"  99th percentile: {p99:.2f} Mbps")
         
         # Show distribution of non-zero values
         non_zero = capacity_map[capacity_map > 0]
-        print(f"\n  Non-zero capacity points: {len(non_zero)} / {capacity_map.size} ({100*len(non_zero)/capacity_map.size:.1f}%)")
-        print(f"  Non-zero mean: {non_zero.mean():.4f} Mbps")
-        print(f"  Non-zero median: {np.median(non_zero):.4f} Mbps")
+        get_logger().info(f"\n  Non-zero capacity points: {len(non_zero)} / {capacity_map.size} ({100*len(non_zero)/capacity_map.size:.1f}%)")
+        get_logger().info(f"  Non-zero mean: {non_zero.mean():.4f} Mbps")
+        get_logger().info(f"  Non-zero median: {np.median(non_zero):.4f} Mbps")
         
         # Show capacity by bandwidth
-        print(f"\n  Capacity by bandwidth:")
+        get_logger().info(f"\n  Capacity by bandwidth:")
         for bw in sorted(set(bs.bandwidth for bs in coverage_map.base_stations.values())):
             # Find points served by BS with this bandwidth
             bw_mask = np.zeros_like(capacity_map, dtype=bool)
@@ -453,7 +454,7 @@ def visualize_capacity_map(coverage_map):
                 bw_capacity = capacity_map[bw_mask]
                 bw_non_zero = bw_capacity[bw_capacity > 0]
                 if len(bw_non_zero) > 0:
-                    print(f"    {bw} MHz: mean={bw_non_zero.mean():.4f} Mbps, max={bw_non_zero.max():.2f} Mbps, "
+                    get_logger().info(f"    {bw} MHz: mean={bw_non_zero.mean():.4f} Mbps, max={bw_non_zero.max():.2f} Mbps, "
                           f"points={len(bw_non_zero)}/{len(bw_capacity)}")
     
     plt.tight_layout()
@@ -464,6 +465,11 @@ def visualize_capacity_map(coverage_map):
 
 if __name__ == "__main__":
     config = load_config("config.yaml")
+    
+    # Initialize logger
+    log_file = config.get('simulation', {}).get('log_file', 'simulation.log')
+    logger = init_logger(log_file)
+    
     core_network = Network()
 
     # 1. Загружаем тарифы (создаем словарь для быстрого поиска)
@@ -481,11 +487,11 @@ if __name__ == "__main__":
     # Create CoverageMap-compatible BS from config
     coverage_bs = create_coverage_bs_from_config(config)
     
-    print(f"\nЗагружено {len(coverage_bs)} базовых станций для CoverageMap:")
+    get_logger().info(f"\nЗагружено {len(coverage_bs)} базовых станций для CoverageMap:")
     for bs_id, bs in coverage_bs.items():
         core_network.add_base_station(bs)
         sector_info = f"сектор {bs.sectors[0].azimuth:.0f}°" if bs.sectors else "без секторов"
-        print(f"  {bs_id}: ({bs.location_x:.0f}, {bs.location_y:.0f}), "
+        get_logger().info(f"  {bs_id}: ({bs.location_x:.0f}, {bs.location_y:.0f}), "
               f"{bs.frequency} MHz, {bs.bandwidth:.1f} MHz, {sector_info}")
 
     # 3. Загружаем абонентов
@@ -495,17 +501,17 @@ if __name__ == "__main__":
         sub = Subscriber(
             sub_data['name'], sub_data['surname'], sub_data['phone'], 
             ue, sub_data['email'], sub_data['phone'], 
-            tariffs['Basic'], 0.002, 5
+            tariffs['Basic'], 0.05, 300  # arrival_rate=0.05, avg_duration=300 секунд
         )
         sub.top_up(sub_data['initial_balance'])
         core_network.add_subscriber(sub)
 
     # 4. Создание карты покрытия для Event A3 handover
-    print("\nСоздание карты покрытия...")
+    get_logger().info("\nСоздание карты покрытия...")
     coverage_map = CoverageMap(width, height, core_network.base_stations)
     coverage_map.update_coverage_map()
     core_network.coverage_map = coverage_map
-    print("Карта покрытия создана. Запуск симуляции с Event A3 handover...")
+    get_logger().info("Карта покрытия создана. Запуск симуляции с Event A3 handover...")
     
     # 5. Запуск симуляции
     duration = config['simulation']['duration_seconds']
@@ -514,7 +520,7 @@ if __name__ == "__main__":
             sub.act(core_network)
         core_network.tick(coverage_map)
         if second % 100 == 0:
-            print(f"Прошло {second} секунд...")
+            get_logger().info(f"Прошло {second} секунд...")
 
     # Отчеты и графики
     core_network.get_report()  # Показывает общее число хэндоверов
@@ -528,56 +534,56 @@ if __name__ == "__main__":
     if core_network.base_stations:
         first_bs_id = list(core_network.base_stations.keys())[0]
         first_bs = core_network.base_stations[first_bs_id]
-        print("Interference: ", interference_calculation(first_bs, first_bs.frequency, first_bs.bandwidth))
-        print("Signal Strength: ", get_signal_strength(first_bs.tx_power, get_path_loss(100), first_bs.antenna_type))
-        print("Antenna Gain: ", get_antenna_gain(first_bs.antenna_type))
-        print("Noise: ", noise_calculation(first_bs.bandwidth))
+        get_logger().info(f"Interference: {interference_calculation(first_bs, first_bs.frequency, first_bs.bandwidth)}")
+        get_logger().info(f"Signal Strength: {get_signal_strength(first_bs.tx_power, get_path_loss(100), first_bs.antenna_type)}")
+        get_logger().info(f"Antenna Gain: {get_antenna_gain(first_bs.antenna_type)}")
+        get_logger().info(f"Noise: {noise_calculation(first_bs.bandwidth)}")
     
     # Print coverage statistics
     rsrp = coverage_map.coverage_map[:, :, 0]
     interference = coverage_map.coverage_map[:, :, 4]
     sinr = coverage_map.coverage_map[:, :, 5]
-    print(f"RSRP range: {rsrp.min():.2f} to {rsrp.max():.2f} dBm")
-    print(f"Interference range: {interference.min():.2f} to {interference.max():.2f} dBm")
-    print(f"SINR range: {sinr.min():.2f} to {sinr.max():.2f} dB")
-    print(f"SINR mean: {sinr.mean():.2f} dB, median: {np.median(sinr):.2f} dB")
+    get_logger().info(f"RSRP range: {rsrp.min():.2f} to {rsrp.max():.2f} dBm")
+    get_logger().info(f"Interference range: {interference.min():.2f} to {interference.max():.2f} dBm")
+    get_logger().info(f"SINR range: {sinr.min():.2f} to {sinr.max():.2f} dB")
+    get_logger().info(f"SINR mean: {sinr.mean():.2f} dB, median: {np.median(sinr):.2f} dB")
     
     # Check SINR values for capacity calculation
     valid_sinr = sinr[sinr > -140]
     if len(valid_sinr) > 0:
         sinr_linear_sample = 10 ** (valid_sinr / 10.0)
-        print(f"SINR linear range: {sinr_linear_sample.min():.6f} to {sinr_linear_sample.max():.6f}")
+        get_logger().info(f"SINR linear range: {sinr_linear_sample.min():.6f} to {sinr_linear_sample.max():.6f}")
         # Test capacity for 20 MHz at different SINR levels
         test_bw = 20e6  # 20 MHz in Hz
         for test_sinr_db in [-10, 0, 10, 20]:
             test_sinr_lin = 10 ** (test_sinr_db / 10.0)
             test_cap = test_bw * np.log2(1.0 + test_sinr_lin) / 1e6
-            print(f"  Capacity at SINR={test_sinr_db} dB: {test_cap:.2f} Mbps")
+            get_logger().info(f"  Capacity at SINR={test_sinr_db} dB: {test_cap:.2f} Mbps")
     
     # Visualize coverage map
     visualize_coverage(coverage_map, core_network)
     
     # Interference dashboard
-    print("\nСоздание дашборда интерференции...")
+    get_logger().info("\nСоздание дашборда интерференции...")
     visualize_interference_dashboard(coverage_map)
     
     # Capacity map
-    print("\nСоздание карты пропускной способности...")
+    get_logger().info("\nСоздание карты пропускной способности...")
     # Verify bandwidth values before calculating capacity
-    print("Проверка bandwidth базовых станций:")
+    get_logger().info("Проверка bandwidth базовых станций:")
     for bs_id, bs in coverage_map.base_stations.items():
-        print(f"  {bs_id}: {bs.bandwidth} MHz")
+        get_logger().info(f"  {bs_id}: {bs.bandwidth} MHz")
     visualize_capacity_map(coverage_map)
     
     # Print handover statistics
-    print(f"\nВсего хендоверов: {len(core_network.handover_events)}")
+    get_logger().info(f"\nВсего хендоверов: {len(core_network.handover_events)}")
     if core_network.handover_events:
-        print("Примеры хендоверов:")
+        get_logger().info("Примеры хендоверов:")
         for i, ho in enumerate(core_network.handover_events[:5]):
-            print(f"  {i+1}. {ho['subscriber']}: {ho['from_bs']} -> {ho['to_bs']} в точке ({ho['x']:.1f}, {ho['y']:.1f})")
+            get_logger().info(f"  {i+1}. {ho['subscriber']}: {ho['from_bs']} -> {ho['to_bs']} в точке ({ho['x']:.1f}, {ho['y']:.1f})")
         
         # Visualize handovers separately
         visualize_handovers(core_network, coverage_map)
     
-    print("Все расчеты завершены. Запускаю plt.show()...")
+    get_logger().info("Все расчеты завершены. Запускаю plt.show()...")
     plt.show()

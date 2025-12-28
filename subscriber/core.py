@@ -68,7 +68,8 @@ class Subscriber:
             return
 
         if random.random() < self.arrival_rate:
-            duration = max(1, int(random.expovariate(1/self.avg_duration)))
+            # Use normal distribution around avg_duration for more predictable call lengths
+            duration = max(60, int(random.normalvariate(self.avg_duration, self.avg_duration * 0.3)))
             success = network.connect_call(self, duration, time.time())
 
             if not success:

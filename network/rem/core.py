@@ -185,7 +185,7 @@ class CoverageMap:
         for bs_id, base_station in self.base_stations.items():
             rsrp_matrices[bs_id] = self.calculate_rsrp(bs_id)
         
-        # Initialize coverage map with best RSRP
+        # Initialize coverage map with best RSRP and find second best (candidate)
         for bs_id, base_station in self.base_stations.items():
             bs_index = self.bs_id_to_index[bs_id]
             RSRP_matrix = rsrp_matrices[bs_id]
@@ -201,6 +201,12 @@ class CoverageMap:
             # Store old leader as candidate where new BS wins
             self.coverage_map[:, :, 2] = np.where(is_new_best, self.coverage_map[:, :, 0], self.coverage_map[:, :, 2])
             self.coverage_map[:, :, 3] = np.where(is_new_best, current_numeric_ids, self.coverage_map[:, :, 3])
+            
+            # Also update candidate if this BS is second best (better than current candidate but not best)
+            is_second_best = (RSRP_matrix > self.coverage_map[:, :, 2]) & (~is_new_best) & (self.coverage_map[:, :, 1] != bs_index)
+            numeric_id = self.bs_id_to_numeric[bs_id]
+            self.coverage_map[:, :, 2] = np.where(is_second_best, RSRP_matrix, self.coverage_map[:, :, 2])
+            self.coverage_map[:, :, 3] = np.where(is_second_best, numeric_id, self.coverage_map[:, :, 3])
             
             # New BS becomes leader
             self.coverage_map[:, :, 0] = np.where(is_new_best, RSRP_matrix, self.coverage_map[:, :, 0])

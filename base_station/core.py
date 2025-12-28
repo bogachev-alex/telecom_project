@@ -5,7 +5,7 @@ import math
 from .constants import HANDOVER_HYSTERESIS
 from .types import Sector
 from session.core import CallSession
-from utils import load_config
+from utils.config import load_config
 from network.physics import get_path_loss, get_angle_attenuation
 
 # base_station/core.py
