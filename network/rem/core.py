@@ -37,24 +37,24 @@ class CoverageMap:
     def calculate_path_loss(self, distance, frequency_mhz):
         """
         Calculate path loss with frequency-dependent propagation.
-        Lower frequencies (900 MHz) propagate further than higher frequencies (2100 MHz).
+        Synchronized with network.physics.get_path_loss() for consistency.
         
-        Formula: L = 32.44 + 20*log10(f_MHz) + 20*log10(d_km)
-        Simplified for mobile: L = 40 + 30*log10(d_m) + 20*log10(f/900)
-        where 900 MHz is the reference frequency.
+        Formula: L = 32.44 + 20*log10(f_MHz) + 20*log10(d_km) + Urban_Loss
+        Where Urban_Loss = 25 dB accounts for urban environment.
         
         Args:
-            distance: Distance in meters
-            frequency_mhz: Frequency in MHz
+            distance: Distance in meters (numpy array)
+            frequency_mhz: Frequency in MHz (scalar or array)
             
         Returns:
-            Path loss in dB
+            Path loss in dB (numpy array)
         """
         distance_km = np.maximum(distance, 1) / 1000.0
-        # Standard free-space path loss with frequency dependency
-        # L = 32.44 + 20*log10(f_MHz) + 20*log10(d_km)
-        path_loss = 32.44 + 20 * np.log10(frequency_mhz) + 20 * np.log10(distance_km)
-        return path_loss
+        # Free Space Path Loss (FSPL) - same formula as physics.py
+        fspl = 32.44 + 20 * np.log10(frequency_mhz) + 20 * np.log10(distance_km)
+        # Urban clutter loss: higher frequencies have more penetration loss (same as physics.py)
+        clutter_loss = np.where(frequency_mhz >= 2000, 30, 25)
+        return fspl + clutter_loss
 
     def calculate_angle_to_point(self, bs_x, bs_y, azimuth_deg):
         """

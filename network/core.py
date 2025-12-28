@@ -107,33 +107,33 @@ class Network:
                 # Get actual RSRP from current call BS (not from coverage map serving BS)
                 _, current_call_rsrp = check_connection_quality(session.subscriber, source_bs)
                 
-                # Pass current call RSRP to handover check
+                # Pass current call RSRP to handover check (first argument)
                 should_handover, target_bs_id = ue.check_handover_a3(
-                    coverage_data, cmap, 
-                    current_bs_rsrp=current_call_rsrp,
+                    current_call_rsrp,  # Real signal from current connected BS
+                    coverage_data, 
+                    cmap, 
                     current_bs_id=source_bs.id,
-                    hysteresis_db=0.5  # Reduced hysteresis for easier handovers
+                    hysteresis_db=3.0  # Standard hysteresis
                 )
                 
                 # Debug: log handover attempts
-                if coverage_data.get('candidate_bs_id') is not None:
-                    candidate_rsrp = coverage_data.get('candidate_rsrp', -140)
-                    delta = candidate_rsrp - current_call_rsrp
-                    if delta > 0.3:  # Candidate is better
-                        get_logger().info(f"🔍 [HO CHECK] {session.subscriber.first_name}: "
-                              f"Current={source_bs.id} ({current_call_rsrp:.1f} dBm), "
-                              f"Candidate={coverage_data.get('candidate_bs_id')} ({candidate_rsrp:.1f} dBm), "
-                              f"Δ={delta:.1f} dB, Trigger={ue.handover_trigger_count}/3")
+                target_rsrp = coverage_data.get('serving_rsrp', -140)
+                target_bs_id_from_map = coverage_data.get('serving_bs_id')
+                delta = target_rsrp - current_call_rsrp
+                if target_bs_id_from_map and target_bs_id_from_map != source_bs.id and delta > 0.3:
+                    get_logger().info(f"🔍 [HO CHECK] {session.subscriber.first_name}: "
+                          f"Current={source_bs.id} ({current_call_rsrp:.1f} dBm), "
+                          f"Target={target_bs_id_from_map} ({target_rsrp:.1f} dBm), "
+                          f"Δ={delta:.1f} dB, Trigger={ue.handover_trigger_count}/3")
                 
                 if should_handover and target_bs_id and target_bs_id in self.base_stations and target_bs_id != source_bs.id:
                     target_bs = self.base_stations[target_bs_id]
                     if target_bs.current_calls < target_bs.capacity:
-                        serving_rsrp = coverage_data['serving_rsrp']
-                        candidate_rsrp = coverage_data['candidate_rsrp']
-                        delta = candidate_rsrp - serving_rsrp
+                        target_rsrp = coverage_data['serving_rsrp']
+                        delta = target_rsrp - current_call_rsrp
                         get_logger().info(f"🔄 [ACTIVE HANDOVER] {session.subscriber.first_name}: "
-                              f"{source_bs.id} ({serving_rsrp:.1f} dBm) -> "
-                              f"{target_bs.id} ({candidate_rsrp:.1f} dBm) | "
+                              f"{source_bs.id} ({current_call_rsrp:.1f} dBm) -> "
+                              f"{target_bs.id} ({target_rsrp:.1f} dBm) | "
                               f"Δ={delta:.1f} dB | Step: {self.sim_step}")
                         # Log handover event
                         self.handover_events.append({

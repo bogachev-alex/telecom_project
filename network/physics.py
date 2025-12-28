@@ -24,11 +24,16 @@ def check_connection_quality(subscriber_or_ue, base_station):
     if dist < 1:
         dist = 1
     
-    # Path Loss: L = 40 + 30 * log10(d)
-    path_loss = get_path_loss(dist)
+    # Get frequency from base_station (Cell has frequency_mhz, CoverageBaseStation has frequency)
+    frequency = getattr(base_station, 'frequency_mhz', getattr(base_station, 'frequency', 900))
+    path_loss = get_path_loss(dist, frequency)
+    
+    # Get antenna gain
+    antenna_type = getattr(base_station, 'antenna_type', 'directional')
+    antenna_gain = get_antenna_gain(antenna_type)
     
     # DOWNLINK (Base Station -> UE)
-    dl_signal = base_station.tx_power - path_loss
+    dl_signal = base_station.tx_power - path_loss + antenna_gain
     downlink_ok = dl_signal > user_equipment.rx_sensitivity
     
     # UPLINK (UE -> Base Station)
@@ -37,8 +42,27 @@ def check_connection_quality(subscriber_or_ue, base_station):
     
     return (downlink_ok and uplink_ok), dl_signal
 
-def get_path_loss(distance):
-    return 40 + 30 * math.log10(distance)
+def get_path_loss(distance, frequency_mhz=900):
+    """
+    Universal path loss formula with frequency dependency.
+    
+    Formula: L = 32.44 + 20*log10(f_MHz) + 20*log10(d_km) + Clutter_Loss
+    Where Clutter_Loss = 25 dB for < 2000 MHz, 30 dB for >= 2000 MHz
+    (higher frequencies have more penetration loss in urban environments).
+    
+    Args:
+        distance: Distance in meters
+        frequency_mhz: Frequency in MHz (default 900 for GSM)
+        
+    Returns:
+        Path loss in dB
+    """
+    dist_km = max(distance, 1) / 1000.0
+    # Free Space Path Loss (FSPL)
+    fspl = 32.44 + 20 * math.log10(frequency_mhz) + 20 * math.log10(dist_km)
+    # Urban clutter loss: higher frequencies (5G) have more penetration loss
+    clutter_loss = 30 if frequency_mhz >= 2000 else 25
+    return fspl + clutter_loss
 
 
 def get_angle_attenuation(ue_coords, site_coords, antenna_azimuth, beamwidth=65):
@@ -78,10 +102,14 @@ def get_signal_strength(tx_power, path_loss, antenna_type):
     return rsrp
 
 def get_antenna_gain(antenna_type):
+    """
+    Antenna gain for different antenna types.
+    Directional sector antennas typically have 15-18 dBi gain.
+    """
     if antenna_type == "omni":
         return 0
     elif antenna_type == "directional":
-        return 10
+        return 18  # Increased for realism (typical sector antenna gain)
     else:
         return 0
 
@@ -94,7 +122,10 @@ def interference_calculation(base_station, frequency, bandwidth):
     interference = 0
     for bs in base_station.neighbors:
         if bs.frequency == frequency:
-            interference += 10 ** (bs.tx_power - get_path_loss(get_distance(base_station, bs)) / 10)
+            dist = get_distance(base_station, bs)
+            # Use frequency for path loss calculation
+            path_loss = get_path_loss(dist, frequency)
+            interference += 10 ** (bs.tx_power - path_loss / 10)
     print(f"Interference: {interference}")
     return interference + noise_calculation(bandwidth)
 

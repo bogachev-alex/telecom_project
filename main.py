@@ -535,7 +535,7 @@ if __name__ == "__main__":
         first_bs_id = list(core_network.base_stations.keys())[0]
         first_bs = core_network.base_stations[first_bs_id]
         get_logger().info(f"Interference: {interference_calculation(first_bs, first_bs.frequency, first_bs.bandwidth)}")
-        get_logger().info(f"Signal Strength: {get_signal_strength(first_bs.tx_power, get_path_loss(100), first_bs.antenna_type)}")
+        get_logger().info(f"Signal Strength: {get_signal_strength(first_bs.tx_power, get_path_loss(100, first_bs.frequency), first_bs.antenna_type)}")
         get_logger().info(f"Antenna Gain: {get_antenna_gain(first_bs.antenna_type)}")
         get_logger().info(f"Noise: {noise_calculation(first_bs.bandwidth)}")
     

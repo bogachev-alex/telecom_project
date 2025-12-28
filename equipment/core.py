@@ -88,17 +88,17 @@ class UserEquipment:
         
         return coverage_data
 
-    def check_handover_a3(self, coverage_data, coverage_map, current_bs_rsrp=None, current_bs_id=None, hysteresis_db=3.0, time_to_trigger=3):
+    def check_handover_a3(self, current_connected_rsrp, coverage_data, coverage_map, current_bs_id=None, hysteresis_db=3.0, time_to_trigger=3):
         """
         Check Event A3 handover condition using coverage map data.
         
-        Event A3: Candidate_RSRP > Current_BS_RSRP + Hysteresis
+        Event A3: Target_RSRP > Current_Connected_RSRP + Hysteresis
         Must be true for Time-to-Trigger consecutive measurements.
         
         Args:
-            coverage_data: Dictionary from coverage_map.lookup()
+            current_connected_rsrp: Real RSRP from current connected BS (computed in Network.tick)
+            coverage_data: Dictionary from coverage_map.lookup() where 'serving' = best signal in point
             coverage_map: CoverageMap instance to resolve BS IDs
-            current_bs_rsrp: RSRP from current call BS (if None, uses serving_rsrp from map)
             current_bs_id: ID of current call BS (to avoid handover to same BS)
             hysteresis_db: Hysteresis in dB to prevent ping-pong (default 3.0)
             time_to_trigger: Number of consecutive measurements required (default 3)
@@ -106,33 +106,18 @@ class UserEquipment:
         Returns:
             Tuple (should_handover: bool, target_bs_id: str or None)
         """
-        # Use actual current call BS RSRP if provided, otherwise fallback to map serving RSRP
-        serving_rsrp = current_bs_rsrp if current_bs_rsrp is not None else coverage_data['serving_rsrp']
-        serving_bs_id = coverage_data['serving_bs_id']
-        candidate_rsrp = coverage_data['candidate_rsrp']
-        candidate_bs_id = coverage_data['candidate_bs_id']
+        # Best cell in current location (Target)
+        target_rsrp = coverage_data['serving_rsrp']
+        target_bs_id = coverage_data['serving_bs_id']
         
-        # Check if serving BS changed (but not yet handovered)
-        if serving_bs_id != self.current_serving_bs_id:
-            # Reset counter if serving BS changed
+        # If already on best cell - no handover needed
+        if current_bs_id and target_bs_id == current_bs_id:
             self.handover_trigger_count = 0
+            return False, None
         
-        # Check Event A3 condition: Candidate_RSRP > Current_BS_RSRP + Hysteresis
-        if candidate_bs_id is not None and candidate_rsrp > -140:
-            # Get candidate BS string ID to check if it's different from current
-            candidate_bs_str_id = None
-            for bs_id, bs in coverage_map.base_stations.items():
-                numeric_id = coverage_map.bs_id_to_numeric.get(bs_id, 0)
-                if int(candidate_bs_id) == numeric_id:
-                    candidate_bs_str_id = bs_id
-                    break
-            
-            # Skip if candidate is same as current BS
-            if current_bs_id and candidate_bs_str_id == current_bs_id:
-                self.handover_trigger_count = 0
-                return False, None
-            
-            condition_met = candidate_rsrp > (serving_rsrp + hysteresis_db)
+        # Check Event A3 condition: Target_RSRP > Current_Connected_RSRP + Hysteresis
+        if target_bs_id is not None and target_rsrp > -140:
+            condition_met = target_rsrp > (current_connected_rsrp + hysteresis_db)
             
             if condition_met:
                 self.handover_trigger_count += 1
@@ -142,12 +127,10 @@ class UserEquipment:
             
             # Check if Time-to-Trigger reached
             if self.handover_trigger_count >= time_to_trigger:
-                # Return candidate BS string ID
-                if candidate_bs_str_id:
-                    self.handover_trigger_count = 0  # Reset after handover
-                    return True, candidate_bs_str_id
+                self.handover_trigger_count = 0
+                return True, target_bs_id
         else:
-            # No valid candidate, reset counter
+            # No valid target, reset counter
             self.handover_trigger_count = 0
         
         return False, None

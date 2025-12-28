@@ -155,6 +155,10 @@ class Cell:
         self.tx_power = 30  # dBm
         # Антенна всегда directional для секторов
         self.antenna_type = config.get('antenna_type', 'directional')
+        # Store frequency for path loss calculation
+        # Default frequency based on technology type
+        default_freq = 3500 if tech_type == '5g_nr' else 900
+        self.frequency_mhz = config.get('frequency_mhz', default_freq)
     
     def calculate_rsrp(self, ue_location):
         """
@@ -172,13 +176,18 @@ class Cell:
             (ue_location[1] - self.site_coords[1])**2
         )
         dist = max(dist, 1)
-        path_loss = get_path_loss(dist)
+        # Use frequency-aware path loss
+        path_loss = get_path_loss(dist, self.frequency_mhz)
         
         # Calculate angle-based attenuation
         angle_loss = get_angle_attenuation(ue_location, self.site_coords, self.azimuth)
         
-        # RSRP = TX Power - Path Loss + Angle Loss (angle_loss is negative, so effectively subtracts)
-        return self.tx_power - path_loss + angle_loss
+        # Antenna gain (main lobe gain)
+        from network.physics import get_antenna_gain
+        antenna_gain = get_antenna_gain(self.antenna_type)
+        
+        # RSRP = TX Power - Path Loss + Angle Loss + Antenna Gain
+        return self.tx_power - path_loss + angle_loss + antenna_gain
 
 class GsmCell(Cell):
     def __init__(self, config, site_coords):
