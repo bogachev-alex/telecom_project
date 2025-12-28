@@ -517,8 +517,11 @@ if __name__ == "__main__":
             print(f"Прошло {second} секунд...")
 
     # Отчеты и графики
+    core_network.get_report()  # Показывает общее число хэндоверов
+    
     if core_network.subscribers:
         first_sub_id = list(core_network.subscribers.keys())[0]
+        core_network.print_subscriber_trace(first_sub_id)  # Показывает таблицу со сменой БС
         core_network.plot_subscriber_movement(first_sub_id)
     
     # Print network statistics

@@ -176,11 +176,19 @@ class CoverageMap:
         return rsrp
 
     def update_coverage_map(self):
-        """Update coverage map with serving BS, candidate BS, interference, and SINR calculations."""
-        # First pass: determine serving BS (and sector) for each point
+        """Update coverage map with serving BS, candidate BS, interference, and SINR calculations.
+        
+        Includes RAT Priority: 5G (wideband > 10 MHz) gets priority over GSM if signal is acceptable (> -105 dBm).
+        """
+        # First pass: calculate RSRP for all BS and determine best by signal strength
+        rsrp_matrices = {}
+        for bs_id, base_station in self.base_stations.items():
+            rsrp_matrices[bs_id] = self.calculate_rsrp(bs_id)
+        
+        # Initialize coverage map with best RSRP
         for bs_id, base_station in self.base_stations.items():
             bs_index = self.bs_id_to_index[bs_id]
-            RSRP_matrix = self.calculate_rsrp(bs_id)  # Returns best RSRP across all sectors
+            RSRP_matrix = rsrp_matrices[bs_id]
             is_new_best = RSRP_matrix > self.coverage_map[:, :, 0]
             
             # Convert current serving BS indices to numeric IDs before update
@@ -197,6 +205,48 @@ class CoverageMap:
             # New BS becomes leader
             self.coverage_map[:, :, 0] = np.where(is_new_best, RSRP_matrix, self.coverage_map[:, :, 0])
             self.coverage_map[:, :, 1] = np.where(is_new_best, bs_index, self.coverage_map[:, :, 1])
+        
+        # Second pass: Apply RAT Priority - 5G gets priority if signal is acceptable
+        # 5G is identified by bandwidth > 10 MHz (vs GSM ~0.2-0.6 MHz)
+        priority_threshold = -105.0  # dBm - acceptable signal for 5G
+        
+        # Build map of current serving BS technology (5G or not)
+        current_serving_index = self.coverage_map[:, :, 1].astype(int)
+        current_is_5g_map = np.zeros_like(current_serving_index, dtype=bool)
+        for idx, serving_bs_id in self.index_to_bs_id.items():
+            mask = current_serving_index == idx
+            if np.any(mask):
+                current_is_5g_map[mask] = self.base_stations[serving_bs_id].bandwidth > 10.0
+        
+        # Check all 5G BS for priority override
+        for bs_id, base_station in self.base_stations.items():
+            bs_index = self.bs_id_to_index[bs_id]
+            is_5g = base_station.bandwidth > 10.0  # Wideband = 5G/4G
+            RSRP_matrix = rsrp_matrices[bs_id]
+            
+            if not is_5g:
+                continue  # Only process 5G BS in priority pass
+            
+            # Priority condition: 5G wins if signal is acceptable, even if GSM is stronger
+            is_priority = (RSRP_matrix > priority_threshold) & (~current_is_5g_map)
+            
+            if np.any(is_priority):
+                # Store current serving as candidate
+                current_rsrp = self.coverage_map[:, :, 0]
+                current_numeric_ids = np.full_like(current_serving_index, -1.0, dtype=float)
+                for idx, current_bs_id in self.index_to_bs_id.items():
+                    mask = current_serving_index == idx
+                    current_numeric_ids[mask] = self.bs_id_to_numeric[current_bs_id]
+                
+                self.coverage_map[:, :, 2] = np.where(is_priority, current_rsrp, self.coverage_map[:, :, 2])
+                self.coverage_map[:, :, 3] = np.where(is_priority, current_numeric_ids, self.coverage_map[:, :, 3])
+                
+                # 5G becomes serving
+                self.coverage_map[:, :, 0] = np.where(is_priority, RSRP_matrix, self.coverage_map[:, :, 0])
+                self.coverage_map[:, :, 1] = np.where(is_priority, bs_index, self.coverage_map[:, :, 1])
+                
+                # Update current_is_5g_map for subsequent iterations
+                current_is_5g_map = np.where(is_priority, True, current_is_5g_map)
         
         # Second pass: calculate interference from all non-serving BS on same frequency
         # CRITICAL: Serving BS signal must NOT be included in interference

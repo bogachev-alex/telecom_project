@@ -20,9 +20,10 @@ class UserEquipment:
         self.current_serving_bs_id = None  # Currently connected BS ID
         self.handover_history = []  # List of handover events: [(x, y, from_bs, to_bs, timestamp)]
 
-    def log_state(self, timestamp, rsrp, base_station_id):
+    def log_state(self, timestamp, rsrp, base_station_id, sim_step=None):
         self.history.append({
             'time': timestamp,
+            'sim_step': sim_step,
             'x': self.location_x,
             'y': self.location_y,
             'rsrp': rsrp,

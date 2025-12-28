@@ -8,15 +8,25 @@ import numpy as np
 
 
 def get_report(network):
-    """Generate network statistics report."""
+    """Generate network statistics report including handover statistics."""
     print("\n" + "="*30)
     print("--- ДЕТАЛЬНЫЙ ОТЧЕТ СЕТИ ---")
-    print(f"Всего попыток: {network.total_attempts}")
-    print(f"Успешных звонков: {network.total_successful_calls}")
+    print(f"Всего попыток звонков: {network.total_attempts}")
+    print(f"Успешных соединений: {network.total_successful_calls}")
+    print(f"Всего хэндоверов: {len(network.handover_events)}")
+    
+    # Count by type
+    a3_count = sum(1 for ho in network.handover_events if ho.get('type') == 'A3')
+    legacy_count = sum(1 for ho in network.handover_events if ho.get('type') == 'legacy')
+    if network.handover_events:
+        print(f"  - Event A3: {a3_count}")
+        print(f"  - Legacy: {legacy_count}")
+    
     print("-" * 30)
     print("ПРИЧИНЫ НЕУДАЧ:")
-    print(f" - Перегрузка вышек: {network.blocked_by_capacity} ({network.blocked_by_capacity/network.total_attempts:.2%})")
-    print(f" - Нехватка средств: {network.blocked_by_balance} ({network.blocked_by_balance/network.total_attempts:.2%})")
+    if network.total_attempts > 0:
+        print(f" - Перегрузка вышек: {network.blocked_by_capacity} ({network.blocked_by_capacity/network.total_attempts:.2%})")
+        print(f" - Нехватка средств: {network.blocked_by_balance} ({network.blocked_by_balance/network.total_attempts:.2%})")
     print("-" * 30)
     
     total_blocked = network.blocked_by_capacity + network.blocked_by_balance
@@ -27,61 +37,97 @@ def get_report(network):
 
 
 def print_subscriber_trace(network, subscriber_id):
-    """Print subscriber movement and signal quality trace."""
+    """Print subscriber trace with handover event markers."""
     sub = network.subscribers.get(subscriber_id)
     if not sub or not sub.user_equipment.history:
         print(f"История для {subscriber_id} не найдена.")
         return
 
-    print(f"\n--- ТРАССИРОВКА ПЕРЕМЕЩЕНИЙ И СИГНАЛА ДЛЯ {sub.first_name} ---")
-    print(f"{'Время':<12} | {'X':<6} | {'Y':<6} | {'RSRP':<8} | {'Качество':<10} | {'БС'}")
-    print("-" * 70)
+    print(f"\n--- ТРАССИРОВКА ДЛЯ {sub.first_name} ---")
+    print(f"{'Шаг':<6} | {'БС':<12} | {'RSRP':<8} | {'Событие'}")
+    print("-" * 50)
 
+    last_bs = None
     for entry in sub.user_equipment.history:
-        readable_time = datetime.datetime.fromtimestamp(entry['time']).strftime('%H:%M:%S')
+        # Use sim_step if available, otherwise fallback to time
+        step = entry.get('sim_step', entry.get('time', 'N/A'))
         
-        val = entry['rsrp']
-        if val > -80:
-            q = "Excellent"
-        elif val > -90:
-            q = "Good"
-        elif val > -100:
-            q = "Fair"
-        else:
-            q = "Poor"
+        # Determine if handover occurred in this tick
+        event = ""
+        current_bs = entry['base_station_id']
+        if last_bs and current_bs != last_bs:
+            event = "🔄 HANDOVER"
+        last_bs = current_bs
 
-        print(f"{readable_time:<12} | "
-            f"{entry['x']:<6.1f} | "
-            f"{entry['y']:<6.1f} | "
-            f"{entry['rsrp']:<8.1f} | "
-            f"{q:<10} | "
-            f"{entry['base_station_id']}")
+        print(f"{step:<6} | {current_bs:<12} | {entry['rsrp']:<8.1f} | {event}")
 
 
 def plot_subscriber_movement(network, subscriber_id):
-    """Plot subscriber movement map with signal strength."""
+    """Plot subscriber movement trajectory with handover points."""
     sub = network.subscribers.get(subscriber_id)
     history = sub.user_equipment.history
+    
+    if not history:
+        print(f"Нет истории для {subscriber_id}")
+        return
     
     x_coords = [e['x'] for e in history]
     y_coords = [e['y'] for e in history]
     rsrp_vals = [e['rsrp'] for e in history]
 
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 10))
     
-    path = plt.scatter(x_coords, y_coords, c=rsrp_vals, cmap='RdYlGn', label='Путь абонента')
-    plt.colorbar(path, label='RSRP (dBm)')
+    # Draw trajectory line
+    plt.plot(x_coords, y_coords, 'b-', alpha=0.3, linewidth=1, label='Траектория')
+    
+    # Color points by RSRP
+    scatter = plt.scatter(x_coords, y_coords, c=rsrp_vals, cmap='RdYlGn', 
+                         s=30, alpha=0.7, edgecolors='black', linewidths=0.5,
+                         label='Точки измерения', zorder=5)
+    plt.colorbar(scatter, label='RSRP (dBm)')
+    
+    # Mark handover points
+    handover_points = []
+    last_bs = None
+    for i, entry in enumerate(history):
+        current_bs = entry['base_station_id']
+        if last_bs and current_bs != last_bs:
+            handover_points.append((entry['x'], entry['y'], last_bs, current_bs))
+        last_bs = current_bs
+    
+    if handover_points:
+        ho_x = [p[0] for p in handover_points]
+        ho_y = [p[1] for p in handover_points]
+        plt.scatter(ho_x, ho_y, c='magenta', s=200, marker='*', 
+                   edgecolors='black', linewidths=1.5, zorder=10,
+                   label=f'Хэндоверы ({len(handover_points)})')
+        
+        # Draw arrows showing handover direction
+        for ho_x, ho_y, from_bs, to_bs in handover_points:
+            from_bs_obj = network.base_stations.get(from_bs)
+            to_bs_obj = network.base_stations.get(to_bs)
+            if from_bs_obj and to_bs_obj:
+                plt.annotate('', xy=(to_bs_obj.location_x, to_bs_obj.location_y),
+                           xytext=(ho_x, ho_y),
+                           arrowprops=dict(arrowstyle='->', color='magenta', 
+                                         lw=2, alpha=0.6, zorder=8))
 
+    # Plot base stations
     for bs_id, bs in network.base_stations.items():
-        plt.plot(bs.location_x, bs.location_y, 'r^', markersize=12)
-        plt.text(bs.location_x + 5, bs.location_y + 5, bs_id, color='red', fontweight='bold')
+        plt.plot(bs.location_x, bs.location_y, 'r^', markersize=15, 
+                markeredgecolor='black', markeredgewidth=1.5, zorder=9)
+        plt.text(bs.location_x + 8, bs.location_y + 8, bs_id, 
+                color='red', fontweight='bold', fontsize=9,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
 
-    plt.title(f"Карта перемещений и уровня сигнала: {sub.first_name}")
+    plt.title(f"Траектория перемещений и хэндоверы: {sub.first_name}", fontsize=14, fontweight='bold')
     plt.xlabel("X (метры)")
     plt.ylabel("Y (метры)")
-    plt.grid(True)
+    plt.grid(True, alpha=0.3)
     plt.xlim(0, 1000)
     plt.ylim(0, 1000)
+    plt.legend(loc='upper right', fontsize=9)
+    plt.tight_layout()
     plt.show()
 
 def plot_coverage_gradient(network, resolution=15):
