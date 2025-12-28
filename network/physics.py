@@ -40,6 +40,38 @@ def check_connection_quality(subscriber_or_ue, base_station):
 def get_path_loss(distance):
     return 40 + 30 * math.log10(distance)
 
+
+def get_angle_attenuation(ue_coords, site_coords, antenna_azimuth, beamwidth=65):
+    """
+    Calculate signal attenuation based on angle between antenna direction and UE position.
+    
+    Args:
+        ue_coords: Tuple (x, y) of user equipment coordinates
+        site_coords: Tuple (x, y) of base station site coordinates
+        antenna_azimuth: Antenna pointing direction in degrees (0 = East, 90 = North)
+        beamwidth: Antenna beamwidth in degrees (default 65 for standard sector antenna)
+    
+    Returns:
+        Attenuation in dB (negative value, to be added to signal strength)
+    """
+    # Calculate angle from site to UE
+    dx = ue_coords[0] - site_coords[0]
+    dy = ue_coords[1] - site_coords[1]
+    
+    # Angle in degrees (0 = East, 90 = North)
+    angle_to_ue = math.degrees(math.atan2(dy, dx))
+    angle_to_ue = (angle_to_ue + 360) % 360
+    
+    # Calculate shortest angular difference (accounting for wrap-around)
+    diff = abs(antenna_azimuth - angle_to_ue)
+    diff = min(diff, 360 - diff)
+    
+    # Gaussian pattern approximation: loss = -12 * (diff / beamwidth)^2
+    loss = -12 * (diff / beamwidth) ** 2
+    
+    # Cap rear attenuation at -25 dB
+    return max(loss, -25)
+
 def get_signal_strength(tx_power, path_loss, antenna_type):
     rsrp = tx_power + get_antenna_gain(antenna_type) - path_loss
     print(f"RSRP: {rsrp}")

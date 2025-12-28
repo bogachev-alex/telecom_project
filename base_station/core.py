@@ -1,10 +1,12 @@
 """
 Base Station module.
 """
+import math
 from .constants import HANDOVER_HYSTERESIS
 from .types import Sector
 from session.core import CallSession
 from utils import load_config
+from network.physics import get_path_loss, get_angle_attenuation
 
 # base_station/core.py
 from .resource_manager import GsmResourceManager, NrResourceManager
@@ -18,6 +20,9 @@ class BaseStation:
         self.technologies = site_config['technologies']
         self.cells = []
         
+        # Extract site coordinates
+        site_coords = (self.site['x'], self.site['y'])
+        
         # Load network_defaults from global config
         network_defaults = config.get('network_defaults', {})
         
@@ -28,7 +33,7 @@ class BaseStation:
                 # Add network_defaults to sector config for GsmCell
                 sector_cfg_with_defaults = sector_cfg.copy()
                 sector_cfg_with_defaults['network_defaults'] = network_defaults
-                cell = CellFactory.create(tech_type, sector_cfg_with_defaults)
+                cell = CellFactory.create(tech_type, sector_cfg_with_defaults, site_coords)
                 self.cells.append(cell)
         
         # Вывод информации о ячейках
@@ -134,24 +139,50 @@ class BaseStation:
 
 class CellFactory:
     @staticmethod
-    def create(tech_type, sector_config):
+    def create(tech_type, sector_config, site_coords):
         if tech_type == "gsm":
-            return GsmCell(sector_config)
+            return GsmCell(sector_config, site_coords)
         elif tech_type == "5g_nr":
-            return NrCell(sector_config)
+            return NrCell(sector_config, site_coords)
         raise ValueError(f"Unknown technology: {tech_type}")
 
 class Cell:
-    def __init__(self, config, tech_type):
+    def __init__(self, config, tech_type, site_coords):
         self.id = config['cell_id']
         self.azimuth = config['azimuth']
         self.tech_type = tech_type
+        self.site_coords = site_coords
+        self.tx_power = 30  # dBm
         # Антенна всегда directional для секторов
         self.antenna_type = config.get('antenna_type', 'directional')
+    
+    def calculate_rsrp(self, ue_location):
+        """
+        Calculate RSRP (Reference Signal Received Power) for UE at given location.
+        
+        Args:
+            ue_location: Tuple (x, y) of user equipment coordinates
+        
+        Returns:
+            RSRP in dBm
+        """
+        # Calculate distance and path loss
+        dist = math.sqrt(
+            (ue_location[0] - self.site_coords[0])**2 + 
+            (ue_location[1] - self.site_coords[1])**2
+        )
+        dist = max(dist, 1)
+        path_loss = get_path_loss(dist)
+        
+        # Calculate angle-based attenuation
+        angle_loss = get_angle_attenuation(ue_location, self.site_coords, self.azimuth)
+        
+        # RSRP = TX Power - Path Loss + Angle Loss (angle_loss is negative, so effectively subtracts)
+        return self.tx_power - path_loss + angle_loss
 
 class GsmCell(Cell):
-    def __init__(self, config):
-        super().__init__(config, "gsm")
+    def __init__(self, config, site_coords):
+        super().__init__(config, "gsm", site_coords)
         self.num_trx = config['num_trx']
         # Полоса для физики (Link Budget) всегда 0.2 МГц
         self.bandwidth = config['num_trx'] * config['network_defaults']['gsm']['trx_bandwidth_mhz']
@@ -160,8 +191,8 @@ class GsmCell(Cell):
         return self.resource_mgr.allocate(subscriber.id)
 
 class NrCell(Cell):
-    def __init__(self, config):
-        super().__init__(config, "5g_nr")
+    def __init__(self, config, site_coords):
+        super().__init__(config, "5g_nr", site_coords)
         self.bandwidth = config['bandwidth_mhz']
         self.scs = config.get('scs_khz', 30)
         self.resource_mgr = NrResourceManager(self.bandwidth)
